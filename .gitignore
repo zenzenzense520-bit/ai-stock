@@ -1,0 +1,18 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# IDE、日志与无关的本地研究输出
+.idea/
+logs/
+output/run_last.txt
+output/papers_*.json
+output/equity_rsi.png
+scripts/fetch_papers.py

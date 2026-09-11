@@ -1,0 +1,22 @@
+[project]
+name = "ai-stock"
+version = "0.1.0"
+description = "基于公开 A 股历史数据的 pandas 策略回测练手项目"
+authors = [
+    { name = "zenzenzense520-bit", email = "zenzenzense520@example.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "matplotlib>=3.11.1",
+    "numpy>=2.5.2",
+    "pandas>=3.0.5",
+    "pandas-stubs~=3.0.5",
+    "requests>=2.34.2",
+]
+
+[project.scripts]
+ai-stock = "ai_stock.main:main"
+
+[build-system]
+requires = ["uv_build>=0.12.5,<0.13.0"]
+build-backend = "uv_build"
