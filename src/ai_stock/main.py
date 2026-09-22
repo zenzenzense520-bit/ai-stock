@@ -49,9 +49,10 @@ def _load_pool(args: argparse.Namespace) -> list:
 
 
 def _run_strategy(code: str, name: str, df: pd.DataFrame,
-                  strat_name: str, bench: pd.Series) -> dict:
+                  strat_name: str, bench: pd.Series,
+                  risk: backtest.RiskConfig) -> dict:
     signal = strategy.STRATEGIES[strat_name](df)
-    res = backtest.run_backtest(df, signal)
+    res = backtest.run_backtest(df, signal, risk=risk)
     res.code = code
     res.strategy = strat_name
     perf = backtest.performance(res.equity, bench, trades=res.trades)
@@ -83,7 +84,22 @@ def main() -> int:
     ap.add_argument("--strategies", default="ma_cross,momentum,bollinger",
                     help="逗号分隔策略名")
     ap.add_argument("--pool-file", default="", help="手动股票池CSV(code,name)")
+    ap.add_argument("--max-position", type=float, default=0.8, help="单标的仓位上限")
+    ap.add_argument("--stop-loss", type=float, default=0.08, help="止损比例")
+    ap.add_argument("--take-profit", type=float, default=0.2, help="止盈比例")
+    ap.add_argument("--max-drawdown", type=float, default=0.2, help="最大回撤熔断比例")
     args = ap.parse_args()
+
+    try:
+        risk = backtest.RiskConfig(
+            max_position_pct=args.max_position,
+            stop_loss_pct=args.stop_loss,
+            take_profit_pct=args.take_profit,
+            max_drawdown_pct=args.max_drawdown,
+        )
+    except ValueError as exc:
+        print(f"风险参数错误: {exc}")
+        return 2
 
     OUT_DIR.mkdir(exist_ok=True, parents=True)
     strat_list = [s.strip() for s in args.strategies.split(",") if s.strip()]
@@ -96,6 +112,8 @@ def main() -> int:
     if not pool:
         print("股票池为空，退出")
         return 1
+    if not args.pool_file:
+        print("[提示] 自动筛选使用当前 PE/市值，仅适合演示；严谨历史回测请传入固定股票池。")
 
     print(f"[行情] 拉取 {len(pool)} 只股票近 {args.years} 年前复权日K...")
     frames = fetch.fetch_pool_kline(pool, years=args.years)
@@ -120,12 +138,12 @@ def main() -> int:
         for code, df in frames.items():
             st = next((x for x in pool if x.code == code), None)
             name = st.name if st else code
-            row = _run_strategy(code, name, df, strat_name, bench)
+            row = _run_strategy(code, name, df, strat_name, bench, risk)
             rows.append(row)
         # 组合回测
         signal_map = {c: strategy.STRATEGIES[strat_name](df)
                       for c, df in frames.items()}
-        port, port_trades = backtest.portfolio_backtest(frames, signal_map)
+        port, port_trades = backtest.portfolio_backtest(frames, signal_map, risk=risk)
         perf_p = backtest.performance(port, bench, trades=port_trades)
         print(f"  [组合等权] 总收益 {perf_p['总收益率']}% | "
               f"回撤 {perf_p['最大回撤']}% | 胜率 {perf_p['胜率']}% | "

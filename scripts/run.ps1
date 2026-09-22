@@ -4,12 +4,25 @@ param(
     [int]$PoolSize = 8,
     [int]$Years = 5,
     [string]$Strategies = "ma_cross,momentum,bollinger",
-    [string]$PoolFile = ""
+    [string]$PoolFile = "",
+    [double]$MaxPosition = 0.8,
+    [double]$StopLoss = 0.08,
+    [double]$TakeProfit = 0.2,
+    [double]$MaxDrawdown = 0.2
 )
 $ErrorActionPreference = "Stop"
 Set-Location (Join-Path $PSScriptRoot "..")
 
-$args = @("--pool-size", $PoolSize, "--years", $Years, "--strategies", $Strategies)
+# 修改说明：兼容入口同步传递四项基础风控参数。
+$args = @(
+    "--pool-size", $PoolSize,
+    "--years", $Years,
+    "--strategies", $Strategies,
+    "--max-position", $MaxPosition,
+    "--stop-loss", $StopLoss,
+    "--take-profit", $TakeProfit,
+    "--max-drawdown", $MaxDrawdown
+)
 if ($PoolFile) { $args += @("--pool-file", $PoolFile) }
 
 if (-not (Test-Path ".venv")) { uv sync }
