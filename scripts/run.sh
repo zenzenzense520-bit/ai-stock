@@ -12,6 +12,10 @@ MAX_POSITION=0.8
 STOP_LOSS=0.08
 TAKE_PROFIT=0.2
 MAX_DRAWDOWN=0.2
+FACTOR_TOP_N=3
+FACTOR_TRAIN_DAYS=252
+FACTOR_TEST_DAYS=63
+FACTOR_REBALANCE_DAYS=20
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -23,11 +27,15 @@ while [[ $# -gt 0 ]]; do
     --stop-loss) STOP_LOSS="$2"; shift 2 ;;
     --take-profit) TAKE_PROFIT="$2"; shift 2 ;;
     --max-drawdown) MAX_DRAWDOWN="$2"; shift 2 ;;
+    --factor-top-n) FACTOR_TOP_N="$2"; shift 2 ;;
+    --factor-train-days) FACTOR_TRAIN_DAYS="$2"; shift 2 ;;
+    --factor-test-days) FACTOR_TEST_DAYS="$2"; shift 2 ;;
+    --factor-rebalance-days) FACTOR_REBALANCE_DAYS="$2"; shift 2 ;;
     *) echo "未知参数: $1"; exit 2 ;;
   esac
 done
 
-ARGS="--pool-size $POOL_SIZE --years $YEARS --strategies $STRATEGIES --max-position $MAX_POSITION --stop-loss $STOP_LOSS --take-profit $TAKE_PROFIT --max-drawdown $MAX_DRAWDOWN"
+ARGS="--pool-size $POOL_SIZE --years $YEARS --strategies $STRATEGIES --max-position $MAX_POSITION --stop-loss $STOP_LOSS --take-profit $TAKE_PROFIT --max-drawdown $MAX_DRAWDOWN --factor-top-n $FACTOR_TOP_N --factor-train-days $FACTOR_TRAIN_DAYS --factor-test-days $FACTOR_TEST_DAYS --factor-rebalance-days $FACTOR_REBALANCE_DAYS"
 if [[ -n "$POOL_FILE" ]]; then
   ARGS="$ARGS --pool-file $POOL_FILE"
 fi

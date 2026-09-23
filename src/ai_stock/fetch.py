@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+import logging
 from dataclasses import dataclass
 from typing import Optional
 
@@ -14,6 +15,7 @@ UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
 
 _SESSION = requests.Session()
 _SESSION.headers.update({"User-Agent": UA})
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -59,7 +61,13 @@ def pick_stocks(
     picked: list[Stock] = []
     page = 1
     while len(picked) < limit and page <= 20:
-        for it in _em_request(page, 100):
+        try:
+            items = _em_request(page, 100)
+        except requests.RequestException as exc:
+            raise RuntimeError(
+                "实时股票池接口不可用，请使用 --pool-file 指定固定股票池"
+            ) from exc
+        for it in items:
             code = str(it.get("f12", ""))
             name = str(it.get("f14", ""))
             pe = it.get("f9")
@@ -112,9 +120,16 @@ def fetch_kline(code: str, years: int = 5) -> pd.DataFrame:
         f"secid={_secid(code)}&klt=101&fqt=1&beg={beg:%Y%m%d}&end={end:%Y%m%d}"
         "&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56"
     )
-    r = _SESSION.get(url, timeout=15)
-    r.raise_for_status()
-    klines = r.json().get("data", {}).get("klines")
+    primary_error: Optional[Exception] = None
+    try:
+        r = _SESSION.get(url, timeout=15)
+        r.raise_for_status()
+        klines = r.json().get("data", {}).get("klines")
+    except (requests.RequestException, ValueError, TypeError) as exc:
+        # 修改说明：主源连接或响应解析失败时进入腾讯备用源，并保留日志。
+        primary_error = exc
+        klines = None
+        LOGGER.warning("东财行情失败，切换腾讯备用源: code=%s error=%s", code, exc)
     if klines:
         rows = [k.split(",") for k in klines]
         df = pd.DataFrame(rows, columns=["date", "open", "close", "high", "low", "volume"])
@@ -131,12 +146,17 @@ def fetch_kline(code: str, years: int = 5) -> pd.DataFrame:
         "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get"
         f"?param={symbol},day,,,{datalen},qfq"
     )
-    r2 = _SESSION.get(url2, timeout=15)
-    r2.raise_for_status()
-    data = r2.json().get("data", {}).get(symbol, {})
+    try:
+        r2 = _SESSION.get(url2, timeout=15)
+        r2.raise_for_status()
+        data = r2.json().get("data", {}).get(symbol, {})
+    except (requests.RequestException, ValueError, TypeError) as exc:
+        detail = f"；主源错误: {primary_error}" if primary_error else ""
+        raise RuntimeError(f"两个行情源均失败: {code}{detail}；备用源错误: {exc}") from exc
     rows = data.get("qfqday") or data.get("day")
     if not rows:
-        raise RuntimeError(f"K线无数据: {code}")
+        detail = f"；主源错误: {primary_error}" if primary_error else ""
+        raise RuntimeError(f"K线无数据: {code}{detail}")
     # 腾讯字段序: [日期, 开, 收, 高, 低, 量(, 额外字段)]，长区间可能多出1列
     df = pd.DataFrame(rows).iloc[:, :6]
     df.columns = ["date", "open", "close", "high", "low", "volume"]

@@ -6,6 +6,7 @@ import argparse
 import logging
 import os
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 import matplotlib
@@ -13,13 +14,33 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import pandas as pd
 
-from ai_stock import backtest, fetch, strategy
+from ai_stock import backtest, factors, fetch, strategy
 
 plt.rcParams["font.sans-serif"] = ["Microsoft YaHei", "SimHei"]
 plt.rcParams["axes.unicode_minus"] = False
 
 OUT_DIR = Path(os.environ.get("AI_STOCK_OUT", "output"))
 LOG_DIR = Path("logs")
+REPORT_COLUMNS = (
+    "code", "name", "strategy", "总收益率", "年化收益率", "最大回撤",
+    "胜率", "夏普比率", "基准收益率", "超额收益率",
+)
+FACTOR_WEIGHT_COLUMNS = (
+    "训练开始", "训练结束", "测试开始", "测试结束",
+    "动量权重", "低波动权重", "成交量权重", "趋势权重",
+)
+
+
+@dataclass(frozen=True)
+class ReportRow:
+    """一行回测报告，替代未结构化字典。"""
+    code: str
+    name: str
+    strategy_name: str
+    metrics: backtest.PerformanceMetrics
+
+    def values(self) -> tuple[object, ...]:
+        return (self.code, self.name, self.strategy_name, *self.metrics.values())
 
 
 def _configure_logging() -> None:
@@ -50,16 +71,16 @@ def _load_pool(args: argparse.Namespace) -> list:
 
 def _run_strategy(code: str, name: str, df: pd.DataFrame,
                   strat_name: str, bench: pd.Series,
-                  risk: backtest.RiskConfig) -> dict:
+                  risk: backtest.RiskConfig) -> ReportRow:
     signal = strategy.STRATEGIES[strat_name](df)
     res = backtest.run_backtest(df, signal, risk=risk)
     res.code = code
     res.strategy = strat_name
     perf = backtest.performance(res.equity, bench, trades=res.trades)
-    print(f"  [{strat_name}] {code} {name}: 总收益 {perf['总收益率']}% | "
-          f"回撤 {perf['最大回撤']}% | 胜率 {perf['胜率']}% | "
+    print(f"  [{strat_name}] {code} {name}: 总收益 {perf.total_return}% | "
+          f"回撤 {perf.max_drawdown}% | 胜率 {perf.win_rate}% | "
           f"交易 {len(res.trades)} 次")
-    return {"code": code, "name": name, "strategy": strat_name, **perf}
+    return ReportRow(code, name, strat_name, perf)
 
 
 def _save_chart(equity_map: dict[str, pd.Series], title: str, path: Path) -> None:
@@ -72,6 +93,40 @@ def _save_chart(equity_map: dict[str, pd.Series], title: str, path: Path) -> Non
     plt.tight_layout()
     plt.savefig(path, dpi=130)
     plt.close()
+
+
+def _run_factor_strategy(
+    frames: dict[str, pd.DataFrame],
+    bench: pd.Series,
+    risk: backtest.RiskConfig,
+    config: factors.FactorConfig,
+) -> ReportRow:
+    """修改说明：运行时间滚动多因子组合并保存每个窗口权重。"""
+    result = factors.generate_walk_forward_signals(frames, config)
+    factor_frames = {
+        code: frame.loc[result.first_test_date:]
+        for code, frame in frames.items()
+    }
+    factor_signals = {
+        code: signal.loc[result.first_test_date:]
+        for code, signal in result.signals.items()
+    }
+    factor_bench = bench.loc[result.first_test_date:]
+    equity, trades = backtest.portfolio_backtest(
+        factor_frames, factor_signals, risk=risk)
+    metrics = backtest.performance(equity, factor_bench, trades=trades)
+    weights = pd.DataFrame(
+        [fold.values() for fold in result.folds], columns=FACTOR_WEIGHT_COLUMNS)
+    weights.to_csv(OUT_DIR / "factor_weights.csv", index=False, encoding="utf-8-sig")
+    _save_chart(
+        {"多因子样本外组合": equity, "基准 上证指数": factor_bench},
+        "多因子时间滚动样本外净值 vs 基准",
+        OUT_DIR / "equity_factor_rank.png",
+    )
+    print(f"  [factor_rank] 总收益 {metrics.total_return}% | "
+          f"回撤 {metrics.max_drawdown}% | 胜率 {metrics.win_rate}% | "
+          f"滚动窗口 {len(result.folds)} 个")
+    return ReportRow("组合", "多因子样本外组合", "factor_rank", metrics)
 
 
 def main() -> int:
@@ -88,6 +143,10 @@ def main() -> int:
     ap.add_argument("--stop-loss", type=float, default=0.08, help="止损比例")
     ap.add_argument("--take-profit", type=float, default=0.2, help="止盈比例")
     ap.add_argument("--max-drawdown", type=float, default=0.2, help="最大回撤熔断比例")
+    ap.add_argument("--factor-top-n", type=int, default=3, help="多因子持仓数量")
+    ap.add_argument("--factor-train-days", type=int, default=252, help="因子训练窗口")
+    ap.add_argument("--factor-test-days", type=int, default=63, help="因子测试窗口")
+    ap.add_argument("--factor-rebalance-days", type=int, default=20, help="因子调仓周期")
     args = ap.parse_args()
 
     try:
@@ -108,7 +167,12 @@ def main() -> int:
             print(f"未知策略: {s}，可选: {list(strategy.STRATEGIES)}")
             return 2
 
-    pool = _load_pool(args)
+    try:
+        pool = _load_pool(args)
+    except (RuntimeError, OSError, ValueError) as exc:
+        logging.exception("股票池加载失败")
+        print(f"股票池加载失败: {exc}")
+        return 1
     if not pool:
         print("股票池为空，退出")
         return 1
@@ -131,8 +195,7 @@ def main() -> int:
     # 对齐：截取各标的公共区间
     frames = {c: df.loc[common_idx] for c, df in frames.items()}
 
-    rows: list[dict] = []
-    best_curves: dict[str, pd.Series] = {}
+    rows: list[ReportRow] = []
     for strat_name in strat_list:
         print(f"\n=== 策略: {strat_name} ===")
         for code, df in frames.items():
@@ -145,11 +208,10 @@ def main() -> int:
                       for c, df in frames.items()}
         port, port_trades = backtest.portfolio_backtest(frames, signal_map, risk=risk)
         perf_p = backtest.performance(port, bench, trades=port_trades)
-        print(f"  [组合等权] 总收益 {perf_p['总收益率']}% | "
-              f"回撤 {perf_p['最大回撤']}% | 胜率 {perf_p['胜率']}% | "
-              f"基准 {perf_p['基准收益率']}% | 超额 {perf_p['超额收益率']}%")
-        rows.append({"code": "组合", "name": "等权组合", "strategy": strat_name,
-                     **perf_p})
+        print(f"  [组合等权] 总收益 {perf_p.total_return}% | "
+              f"回撤 {perf_p.max_drawdown}% | 胜率 {perf_p.win_rate}% | "
+              f"基准 {perf_p.benchmark_return}% | 超额 {perf_p.excess_return}%")
+        rows.append(ReportRow("组合", "等权组合", strat_name, perf_p))
         equity_map = {f"{c}": frames[c]["close"] / frames[c]["close"].iloc[0]
                       for c in frames}
         equity_map[f"[{strat_name}] 策略组合"] = port
@@ -157,8 +219,21 @@ def main() -> int:
         _save_chart(equity_map, f"策略 {strat_name} 组合净值 vs 基准（近{args.years}年）",
                     OUT_DIR / f"equity_{strat_name}.png")
 
+    print("\n=== 策略: factor_rank（时间滚动样本外） ===")
+    try:
+        factor_config = factors.FactorConfig(
+            train_days=args.factor_train_days,
+            test_days=args.factor_test_days,
+            rebalance_days=args.factor_rebalance_days,
+            top_n=args.factor_top_n,
+        )
+        rows.append(_run_factor_strategy(frames, bench, risk, factor_config))
+    except ValueError as exc:
+        print(f"  [SKIP] 多因子策略未运行: {exc}")
+
     # 汇总表
-    df_report = pd.DataFrame(rows)
+    df_report = pd.DataFrame(
+        [row.values() for row in rows], columns=REPORT_COLUMNS)
     report_path = OUT_DIR / "report.csv"
     df_report.to_csv(report_path, index=False, encoding="utf-8-sig")
     logging.info("回测完成，报告路径=%s，记录数=%s", report_path, len(df_report))

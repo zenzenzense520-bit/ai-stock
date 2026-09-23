@@ -58,6 +58,25 @@ class BacktestResult:
     risk_halted: bool = False
 
 
+@dataclass(frozen=True)
+class PerformanceMetrics:
+    """强类型绩效指标，数值字段均以百分比或比率表示。"""
+    total_return: float
+    annual_return: float
+    max_drawdown: float
+    win_rate: float
+    sharpe_ratio: float
+    benchmark_return: float
+    excess_return: float
+
+    def values(self) -> tuple[float, ...]:
+        return (
+            self.total_return, self.annual_return, self.max_drawdown,
+            self.win_rate, self.sharpe_ratio, self.benchmark_return,
+            self.excess_return,
+        )
+
+
 def run_backtest(
     df: pd.DataFrame,
     signal: pd.Series,
@@ -199,13 +218,11 @@ def trade_win_rate(trades: list[Trade]) -> float:
 
 def performance(equity: pd.Series, benchmark: Optional[pd.Series] = None,
                 risk_free: float = 0.02, trades: Optional[list[Trade]] = None,
-                ) -> dict[str, float]:
+                ) -> PerformanceMetrics:
     """绩效指标：总收益/年化/最大回撤/夏普/胜率/基准对比。"""
     eq = equity.dropna()
     if len(eq) < 2:
-        return {"总收益率": 0.0, "年化收益率": 0.0, "最大回撤": 0.0,
-                "胜率": 0.0, "夏普比率": 0.0, "基准收益率": 0.0,
-                "超额收益率": 0.0}
+        return PerformanceMetrics(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
     total = eq.iloc[-1] / eq.iloc[0] - 1
     days = len(eq)
     ann = (eq.iloc[-1] / eq.iloc[0]) ** (250 / days) - 1
@@ -217,12 +234,12 @@ def performance(equity: pd.Series, benchmark: Optional[pd.Series] = None,
     bench_ret = 0.0
     if benchmark is not None and len(benchmark) > 1:
         bench_ret = benchmark.iloc[-1] / benchmark.iloc[0] - 1
-    return {
-        "总收益率": round(total * 100, 2),
-        "年化收益率": round(ann * 100, 2),
-        "最大回撤": round(dd * 100, 2),
-        "胜率": trade_win_rate(trades or []),
-        "夏普比率": round(sharpe, 2),
-        "基准收益率": round(bench_ret * 100, 2),
-        "超额收益率": round((total - bench_ret) * 100, 2),
-    }
+    return PerformanceMetrics(
+        total_return=round(total * 100, 2),
+        annual_return=round(ann * 100, 2),
+        max_drawdown=round(dd * 100, 2),
+        win_rate=trade_win_rate(trades or []),
+        sharpe_ratio=round(sharpe, 2),
+        benchmark_return=round(bench_ret * 100, 2),
+        excess_return=round((total - bench_ret) * 100, 2),
+    )

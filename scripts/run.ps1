@@ -8,7 +8,11 @@ param(
     [double]$MaxPosition = 0.8,
     [double]$StopLoss = 0.08,
     [double]$TakeProfit = 0.2,
-    [double]$MaxDrawdown = 0.2
+    [double]$MaxDrawdown = 0.2,
+    [int]$FactorTopN = 3,
+    [int]$FactorTrainDays = 252,
+    [int]$FactorTestDays = 63,
+    [int]$FactorRebalanceDays = 20
 )
 $ErrorActionPreference = "Stop"
 Set-Location (Join-Path $PSScriptRoot "..")
@@ -21,7 +25,11 @@ $args = @(
     "--max-position", $MaxPosition,
     "--stop-loss", $StopLoss,
     "--take-profit", $TakeProfit,
-    "--max-drawdown", $MaxDrawdown
+    "--max-drawdown", $MaxDrawdown,
+    "--factor-top-n", $FactorTopN,
+    "--factor-train-days", $FactorTrainDays,
+    "--factor-test-days", $FactorTestDays,
+    "--factor-rebalance-days", $FactorRebalanceDays
 )
 if ($PoolFile) { $args += @("--pool-file", $PoolFile) }
 
