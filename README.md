@@ -57,6 +57,8 @@ bash scripts/run.sh --pool-file data/sample_pool.csv --years 2 --factor-top-n 2
 
 若有经核验的历史成分数据，可用 `--universe-file` 指定 CSV。字段为 `code,valid_from,valid_to,published_at,source`，其中公布日不得晚于生效日，`source` 应填写可核查的来源。它与 `--pool-file` 互斥。数据格式、边界和限制见 [历史股票池与线性模型数据协议](docs/历史股票池与线性模型数据协议.md)。
 
+已按上交所公告整理 [2024—2025 年上证50调样事件](docs/上证50历史调样来源.md)。这仅是调入/调出记录，不是完整历史股票池，不能直接传给 `--universe-file`。
+
 运行测试：
 
 ```bash
