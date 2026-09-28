@@ -14,7 +14,8 @@
 - 风控：单标的仓位上限、止损、止盈和最大回撤熔断
 - 指标：总收益率、年化收益率、最大回撤、胜率、夏普比率和相对上证指数收益
 - 输出：`output/report.csv` 与各策略净值图，运行日志写入 `logs/ai_stock.log`
-- 因子输出：`output/factor_weights.csv` 与 `output/equity_factor_rank.png`
+- 因子输出：`output/factor_rank_weights.csv` 与 `output/equity_factor_rank.png`
+- 线性基线：在相同滚动窗口上训练岭回归，并与多因子排名比较
 
 ## 快速开始
 
@@ -54,6 +55,8 @@ bash scripts/run.sh --pool-file pool.csv --years 3
 bash scripts/run.sh --pool-file data/sample_pool.csv --years 2 --factor-top-n 2
 ```
 
+若有经核验的历史成分数据，可用 `--universe-file` 指定 CSV。字段为 `code,valid_from,valid_to,published_at,source`，其中公布日不得晚于生效日，`source` 应填写可核查的来源。它与 `--pool-file` 互斥。数据格式、边界和限制见 [历史股票池与线性模型数据协议](docs/历史股票池与线性模型数据协议.md)。
+
 运行测试：
 
 ```bash
@@ -68,10 +71,11 @@ bash scripts/test.sh
 | `momentum` | 20 日收益为正且收盘价高于 20 日均线 |
 | `bollinger` | 跌破 20 日布林下轨买入，回到中轨上方卖出 |
 | `factor_rank` | 训练窗估计因子 IC 权重，测试窗持有综合排名 Top N |
+| `ridge_rank` | 训练窗拟合岭回归，测试窗按预测未来收益持有 Top N |
 
 所有信号在当日收盘后生成，并延迟到下一交易日开盘执行，以避免前视偏差。胜率按“盈利的已平仓交易数 ÷ 已平仓交易总数”计算。
 
-自动选股使用运行当日的 PE 和市值，只适合演示完整流程，不能用于证明历史选股有效。严谨历史回测应使用 `--pool-file` 提供事先固定的股票池，后续版本再接入历史成分股和历史财务数据。
+自动选股使用运行当日的 PE 和市值，只适合演示完整流程，不能用于证明历史选股有效。`--pool-file` 可提供事先固定的股票池；`--universe-file` 已支持按日期过滤候选，但仍需自行提供可核验的历史成分、退市行情，并解决组合估值限制，才能开展更严谨的历史回测。
 
 ## 项目结构
 

@@ -5,6 +5,7 @@ param(
     [int]$Years = 5,
     [string]$Strategies = "ma_cross,momentum,bollinger",
     [string]$PoolFile = "",
+    [string]$UniverseFile = "",
     [double]$MaxPosition = 0.8,
     [double]$StopLoss = 0.08,
     [double]$TakeProfit = 0.2,
@@ -32,6 +33,7 @@ $args = @(
     "--factor-rebalance-days", $FactorRebalanceDays
 )
 if ($PoolFile) { $args += @("--pool-file", $PoolFile) }
+if ($UniverseFile) { $args += @("--universe-file", $UniverseFile) }
 
 if (-not (Test-Path ".venv")) { uv sync }
 

@@ -6,6 +6,8 @@ from dataclasses import dataclass
 
 import pandas as pd
 
+from ai_stock.universe import Universe
+
 FACTOR_COLUMNS = ("momentum", "low_volatility", "volume_strength", "trend")
 
 
@@ -72,6 +74,7 @@ class FactorSignals:
 def build_factor_panel(
     frames: dict[str, pd.DataFrame],
     config: FactorConfig,
+    universe: Universe | None = None,
 ) -> pd.DataFrame:
     """按日期和股票构建因子面板，因子只使用当日及以前数据。"""
     panels: dict[str, pd.DataFrame] = {}
@@ -89,6 +92,13 @@ def build_factor_panel(
         panel["forward_return"] = (
             close.shift(-config.forward_window) / close - 1
         )
+        # 修改说明：成员资格按当日日期过滤，训练与预测共用同一历史股票池。
+        if universe is not None:
+            eligible = pd.Series(
+                [code in universe.active(date) for date in frame.index],
+                index=frame.index,
+            )
+            panel.loc[~eligible, :] = float("nan")
         panels[code] = panel
     if not panels:
         raise ValueError("因子计算需要至少一个标的")
@@ -138,25 +148,34 @@ def _rank_stocks(
     return [str(code) for code in score.nlargest(min(top_n, len(score))).index]
 
 
+def walk_forward_windows(
+    dates: pd.DatetimeIndex, config: FactorConfig,
+) -> list[tuple[pd.DatetimeIndex, pd.DatetimeIndex]]:
+    """修改说明：多因子与线性模型复用同一训练、测试划分。"""
+    if len(dates) <= config.train_days:
+        raise ValueError("历史数据不足以形成一个训练窗口和测试窗口")
+    windows: list[tuple[pd.DatetimeIndex, pd.DatetimeIndex]] = []
+    for start in range(config.train_days, len(dates), config.test_days):
+        windows.append((dates[start - config.train_days:start],
+                        dates[start:min(start + config.test_days, len(dates))]))
+    return windows
+
+
 def generate_walk_forward_signals(
     frames: dict[str, pd.DataFrame],
     config: FactorConfig,
+    universe: Universe | None = None,
 ) -> FactorSignals:
     """滚动估计因子权重，并仅在后续测试窗生成持仓信号。"""
-    panel = build_factor_panel(frames, config)
+    panel = build_factor_panel(frames, config, universe)
     dates = pd.DatetimeIndex(sorted(panel.index.get_level_values("date").unique()))
-    if len(dates) <= config.train_days:
-        raise ValueError("历史数据不足以形成一个训练窗口和测试窗口")
+    windows = walk_forward_windows(dates, config)
     signals = {
         code: pd.Series(0, index=frame.index, dtype=int)
         for code, frame in frames.items()
     }
     folds: list[FactorFold] = []
-    test_start_position = config.train_days
-    while test_start_position < len(dates):
-        train_dates = dates[test_start_position - config.train_days:test_start_position]
-        test_end_position = min(test_start_position + config.test_days, len(dates))
-        test_dates = dates[test_start_position:test_end_position]
+    for train_dates, test_dates in windows:
         weights = _estimate_weights(panel, train_dates, config)
         folds.append(FactorFold(
             train_start=train_dates[0], train_end=train_dates[-1],
@@ -167,7 +186,10 @@ def generate_walk_forward_signals(
             holding_dates = test_dates[offset:offset + config.rebalance_days]
             selected = _rank_stocks(panel, rebalance_date, weights, config.top_n)
             for code in selected:
-                signals[code].loc[holding_dates] = 1
-        test_start_position = test_end_position
+                # 修改说明：成员中途退出时立即停止发出持仓信号。
+                valid_dates = (holding_dates if universe is None else
+                               pd.DatetimeIndex([day for day in holding_dates
+                                                 if code in universe.active(day)]))
+                signals[code].loc[valid_dates] = 1
     return FactorSignals(signals=signals, folds=folds,
                          first_test_date=folds[0].test_start)

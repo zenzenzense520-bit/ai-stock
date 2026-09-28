@@ -8,6 +8,7 @@ POOL_SIZE=8
 YEARS=5
 STRATEGIES="ma_cross,momentum,bollinger"
 POOL_FILE=""
+UNIVERSE_FILE=""
 MAX_POSITION=0.8
 STOP_LOSS=0.08
 TAKE_PROFIT=0.2
@@ -23,6 +24,7 @@ while [[ $# -gt 0 ]]; do
     --years) YEARS="$2"; shift 2 ;;
     --strategies) STRATEGIES="$2"; shift 2 ;;
     --pool-file) POOL_FILE="$2"; shift 2 ;;
+    --universe-file) UNIVERSE_FILE="$2"; shift 2 ;;
     --max-position) MAX_POSITION="$2"; shift 2 ;;
     --stop-loss) STOP_LOSS="$2"; shift 2 ;;
     --take-profit) TAKE_PROFIT="$2"; shift 2 ;;
@@ -38,6 +40,9 @@ done
 ARGS="--pool-size $POOL_SIZE --years $YEARS --strategies $STRATEGIES --max-position $MAX_POSITION --stop-loss $STOP_LOSS --take-profit $TAKE_PROFIT --max-drawdown $MAX_DRAWDOWN --factor-top-n $FACTOR_TOP_N --factor-train-days $FACTOR_TRAIN_DAYS --factor-test-days $FACTOR_TEST_DAYS --factor-rebalance-days $FACTOR_REBALANCE_DAYS"
 if [[ -n "$POOL_FILE" ]]; then
   ARGS="$ARGS --pool-file $POOL_FILE"
+fi
+if [[ -n "$UNIVERSE_FILE" ]]; then
+  ARGS="$ARGS --universe-file $UNIVERSE_FILE"
 fi
 
 # 未安装依赖时自动安装
