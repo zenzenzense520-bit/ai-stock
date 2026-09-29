@@ -59,6 +59,8 @@ bash scripts/run.sh --pool-file data/sample_pool.csv --years 2 --factor-top-n 2
 
 已按上交所公告整理 [2024—2025 年上证50调样事件](docs/上证50历史调样来源.md)。这仅是调入/调出记录，不是完整历史股票池，不能直接传给 `--universe-file`。
 
+另提供[深证100历史调样只读审计](docs/深证100历史调样审计.md)，可通过 `bash scripts/audit-cni.sh` 直接检查国证官网调样表的期次样本数量。该表缺少可核验的逐期公告发布时间，因此审计结果不能直接用于回测。
+
 运行测试：
 
 ```bash
@@ -85,6 +87,7 @@ bash scripts/test.sh
 src/ai_stock/       数据、策略、回测与命令入口
 scripts/run.sh      统一运行入口
 scripts/test.sh     统一测试入口
+scripts/audit-cni.sh 国证历史调样只读审计入口
 tests/              回测口径测试
 output/             回测报告与净值图
 logs/               本地运行日志
